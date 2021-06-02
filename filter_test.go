@@ -1517,6 +1517,9 @@ func TestFilterFlowerAddDel(t *testing.T) {
 		SrcIP:         net.ParseIP("2.0.0.1"),
 		SrcIPMask:     testMask,
 		EthType:       unix.ETH_P_IP,
+		IPProto:       unix.IPPROTO_TCP,
+		SrcPort:       57002,
+		DestPort:      57001,
 		EncDestIP:     net.ParseIP("3.0.0.1"),
 		EncDestIPMask: testMask,
 		EncSrcIP:      net.ParseIP("4.0.0.1"),
@@ -1553,6 +1556,9 @@ func TestFilterFlowerAddDel(t *testing.T) {
 	if filter.EthType != flower.EthType {
 		t.Fatalf("Flower EthType doesn't match")
 	}
+	if filter.IPProto != flower.IPProto {
+		t.Fatalf("Flower IPProto doesn't match")
+	}
 	if !filter.DestIP.Equal(flower.DestIP) {
 		t.Fatalf("Flower DestIP doesn't match")
 	}
@@ -1565,6 +1571,13 @@ func TestFilterFlowerAddDel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(filter.SrcIPMask, testMask) {
 		t.Fatalf("Flower SrcIPMask doesn't match")
+	}
+
+	if filter.SrcPort != flower.SrcPort {
+		t.Fatalf("Flower SrcPort doesn't match")
+	}
+	if filter.DestPort != flower.DestPort {
+		t.Fatalf("Flower DestPort doesn't match")
 	}
 
 	if !filter.EncDestIP.Equal(flower.EncDestIP) {

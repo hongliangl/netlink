@@ -128,6 +128,9 @@ type Flower struct {
 	SrcIP         net.IP
 	SrcIPMask     net.IPMask
 	EthType       uint16
+	IPProto       uint8
+	DestPort      uint16
+	SrcPort       uint16
 	EncDestIP     net.IP
 	EncDestIPMask net.IPMask
 	EncSrcIP      net.IP
@@ -169,9 +172,52 @@ func (filter *Flower) encodeIP(parent *nl.RtAttr, ip net.IP, mask net.IPMask, v4
 	parent.AddRtAttr(maskType, encodeMask)
 }
 
+func (filter *Flower) encodePort(parent *nl.RtAttr, port uint16, endpoint int) {
+	var portType int
+	var portMask int
+	if filter.IPProto == unix.IPPROTO_TCP {
+		if endpoint == nl.FLOWER_ENDPOINT_SRC {
+			portType = nl.TCA_FLOWER_KEY_TCP_SRC
+			portMask = nl.TCA_FLOWER_KEY_TCP_SRC_MASK
+		} else if endpoint == nl.FLOWER_ENDPOINT_DST {
+			portType = nl.TCA_FLOWER_KEY_TCP_DST
+			portMask = nl.TCA_FLOWER_KEY_TCP_DST_MASK
+		}
+	} else if filter.IPProto == unix.IPPROTO_UDP {
+		if endpoint == nl.FLOWER_ENDPOINT_SRC {
+			portType = nl.TCA_FLOWER_KEY_UDP_SRC
+			portMask = nl.TCA_FLOWER_KEY_UDP_SRC_MASK
+		} else if endpoint == nl.FLOWER_ENDPOINT_DST {
+			portType = nl.TCA_FLOWER_KEY_UDP_DST
+			portMask = nl.TCA_FLOWER_KEY_UDP_DST_MASK
+		}
+	} else if filter.IPProto == unix.IPPROTO_SCTP {
+		if endpoint == nl.FLOWER_ENDPOINT_SRC {
+			portType = nl.TCA_FLOWER_KEY_SCTP_SRC
+			portMask = nl.TCA_FLOWER_KEY_SCTP_SRC_MASK
+		} else if endpoint == nl.FLOWER_ENDPOINT_DST {
+			portType = nl.TCA_FLOWER_KEY_SCTP_DST
+			portMask = nl.TCA_FLOWER_KEY_SCTP_DST_MASK
+		}
+	} else {
+		return
+	}
+	parent.AddRtAttr(portType, htons(port))
+	parent.AddRtAttr(portMask, htons(0xffff))
+}
+
 func (filter *Flower) encode(parent *nl.RtAttr) error {
 	if filter.EthType != 0 {
 		parent.AddRtAttr(nl.TCA_FLOWER_KEY_ETH_TYPE, htons(filter.EthType))
+	}
+	if filter.IPProto != 0 && (filter.EthType == unix.ETH_P_IP || filter.EthType == unix.ETH_P_IPV6) {
+		if filter.IPProto == unix.IPPROTO_ICMP && filter.EthType != unix.ETH_P_IP ||
+			filter.IPProto == unix.IPPROTO_ICMPV6 && filter.EthType != unix.ETH_P_IPV6 {
+			return fmt.Errorf("ICMP version does not match IP version")
+		}
+		parent.AddRtAttr(nl.TCA_FLOWER_KEY_IP_PROTO, htons(uint16(filter.IPProto))[1:])
+	} else {
+		return fmt.Errorf("IP version is not IPv4/IPv6")
 	}
 	if filter.SrcIP != nil {
 		filter.encodeIP(parent, filter.SrcIP, filter.SrcIPMask,
@@ -182,6 +228,12 @@ func (filter *Flower) encode(parent *nl.RtAttr) error {
 		filter.encodeIP(parent, filter.DestIP, filter.DestIPMask,
 			nl.TCA_FLOWER_KEY_IPV4_DST, nl.TCA_FLOWER_KEY_IPV6_DST,
 			nl.TCA_FLOWER_KEY_IPV4_DST_MASK, nl.TCA_FLOWER_KEY_IPV6_DST_MASK)
+	}
+	if filter.SrcPort != 0 {
+		filter.encodePort(parent, filter.SrcPort, nl.FLOWER_ENDPOINT_SRC)
+	}
+	if filter.DestPort != 0 {
+		filter.encodePort(parent, filter.DestPort, nl.FLOWER_ENDPOINT_DST)
 	}
 	if filter.EncSrcIP != nil {
 		filter.encodeIP(parent, filter.EncSrcIP, filter.EncSrcIPMask,
@@ -212,6 +264,8 @@ func (filter *Flower) decode(data []syscall.NetlinkRouteAttr) error {
 		switch datum.Attr.Type {
 		case nl.TCA_FLOWER_KEY_ETH_TYPE:
 			filter.EthType = ntohs(datum.Value)
+		case nl.TCA_FLOWER_KEY_IP_PROTO:
+			filter.IPProto = uint8(ntohs(append([]byte{byte(0)}, datum.Value...)))
 		case nl.TCA_FLOWER_KEY_IPV4_SRC, nl.TCA_FLOWER_KEY_IPV6_SRC:
 			filter.SrcIP = datum.Value
 		case nl.TCA_FLOWER_KEY_IPV4_SRC_MASK, nl.TCA_FLOWER_KEY_IPV6_SRC_MASK:
@@ -220,6 +274,10 @@ func (filter *Flower) decode(data []syscall.NetlinkRouteAttr) error {
 			filter.DestIP = datum.Value
 		case nl.TCA_FLOWER_KEY_IPV4_DST_MASK, nl.TCA_FLOWER_KEY_IPV6_DST_MASK:
 			filter.DestIPMask = datum.Value
+		case nl.TCA_FLOWER_KEY_TCP_SRC, nl.TCA_FLOWER_KEY_UDP_SRC, nl.TCA_FLOWER_KEY_SCTP_SRC:
+			filter.SrcPort = ntohs(datum.Value)
+		case nl.TCA_FLOWER_KEY_TCP_DST, nl.TCA_FLOWER_KEY_UDP_DST, nl.TCA_FLOWER_KEY_SCTP_DST:
+			filter.DestPort = ntohs(datum.Value)
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_SRC, nl.TCA_FLOWER_KEY_ENC_IPV6_SRC:
 			filter.EncSrcIP = datum.Value
 		case nl.TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK, nl.TCA_FLOWER_KEY_ENC_IPV6_SRC_MASK:
