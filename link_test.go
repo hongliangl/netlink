@@ -1611,8 +1611,10 @@ func TestLinkAddDelVxlanFlowBased(t *testing.T) {
 }
 
 func TestLinkAddDelBareUDP(t *testing.T) {
-	minKernelRequired(t, 5, 1)
-	setUpNetlinkTestWithKModule(t, "bareudp")
+	if os.Getenv("CI") == "true" {
+		t.Skipf("Fails in CI due to operation not supported (missing kernel module?)")
+	}
+	minKernelRequired(t, 5, 8)
 	tearDown := setUpNetlinkTest(t)
 	defer tearDown()
 
@@ -1639,7 +1641,6 @@ func TestBareUDPCompareToIP(t *testing.T) {
 	}
 	// requires iproute2 >= 5.10
 	minKernelRequired(t, 5, 9)
-	setUpNetlinkTestWithKModule(t, "bareudp")
 	ns, tearDown := setUpNamedNetlinkTest(t)
 	defer tearDown()
 
